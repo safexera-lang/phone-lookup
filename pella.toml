@@ -1,0 +1,10 @@
+[application]
+name = "mobile-search-bot"
+version = "1.0.0"
+description = "Premium Mobile Number Search Bot by @Terex"
+
+[build]
+command = "pip install -r requirements.txt"
+
+[run]
+command = "python main.py"
