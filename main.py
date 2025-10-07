@@ -10,8 +10,9 @@ import pytz
 import time
 import io
 import logging
+import random
 
-# Setup logging for Pella
+# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
-# Configuration from environment variables (Pella uses env vars)
+# Configuration from environment variables
 API_URL = os.getenv('API_URL', "https://lostingness.site/osintx/mobile/api.php?key=c365a7d9-1c91-43c9-933d-da0ac38827ad&number={number}")
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 
@@ -347,9 +348,16 @@ async def process_search(ctx_or_channel, number, search_msg=None, is_auto=False)
             updating_embed.set_footer(text="High-speed search in progress...")
             await search_msg.edit(embed=updating_embed)
         
-        # API Request
+        # API Request with custom headers to avoid blocking
         url = API_URL.format(number=number)
-        async with aiohttp.ClientSession() as session:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://lostingness.site/'
+        }
+        
+        async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, timeout=30) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -888,6 +896,27 @@ async def on_command_error(ctx, error):
     )
     await ctx.send(embed=embed)
 
+async def start_bot():
+    """Start bot with retry mechanism"""
+    retries = 5
+    for attempt in range(retries):
+        try:
+            await bot.start(BOT_TOKEN)
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limited
+                wait_time = 2 ** attempt  # Exponential backoff: 2, 4, 8, 16, 32 seconds
+                logger.warning(f"Rate limited. Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{retries})")
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+        except Exception as e:
+            if attempt < retries - 1:
+                wait_time = 2 ** attempt
+                logger.warning(f"Bot start failed. Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{retries})")
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+
 def main():
     """Main function to run the bot"""
     if not BOT_TOKEN:
@@ -905,9 +934,12 @@ def main():
         logger.info("📊 Record Display: First 25 records shown")
         logger.info("👋 Auto-help enabled for new servers")
         logger.info("🏠 Host: Pella.app")
+        logger.info("🔄 Retry mechanism: Enabled")
         logger.info("⭐ Status: Ready to launch!")
         
-        bot.run(BOT_TOKEN)
+        # Use asyncio to run the bot with retry mechanism
+        asyncio.run(start_bot())
+        
     except discord.LoginFailure:
         logger.error("❌ Invalid bot token!")
     except Exception as e:
